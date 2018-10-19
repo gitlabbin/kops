@@ -398,11 +398,26 @@ func runTestAWS(t *testing.T, clusterName string, srcDir string, version string,
 		}
 	}
 
-	// Special case that tests a bastion with user-data
-	if srcDir == "bastionadditional_user-data" {
+	// Special case that tests with user-data,
+	srcDirArray := []string{
+		"bastionadditional_user-data", "privateweave", "privateflannel",
+		"privatecalico", "privatecanal", "privatekopeio",
+		"private-shared-subnet", "privatedns1", "privatedns2",
+	}
+	if contains(srcDirArray, srcDir) {
 		expectedFilenames = append(expectedFilenames, "aws_launch_configuration_bastion."+clusterName+"_user_data")
 	}
 	runTest(t, h, clusterName, srcDir, version, private, zones, expectedFilenames, "", nil, lifecycleOverrides)
+}
+
+// Contains tells whether a contains x.
+func contains(a []string, x string) bool {
+	for _, n := range a {
+		if x == n {
+			return true
+		}
+	}
+	return false
 }
 
 func runTestPhase(t *testing.T, clusterName string, srcDir string, version string, private bool, zones int, phase cloudup.Phase) {
