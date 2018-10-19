@@ -31,10 +31,28 @@ import (
 
 	"k8s.io/kops/pkg/apis/kops"
 	"k8s.io/kops/pkg/apis/nodeup"
+	"k8s.io/kops/pkg/client/simple/vfsclientset"
 	"k8s.io/kops/pkg/model/resources"
 	"k8s.io/kops/upup/pkg/fi"
 	"k8s.io/kops/upup/pkg/fi/cloudup/awsup"
+	"k8s.io/kops/util/pkg/vfs"
 )
+
+var PublicKeysTemplate = `tail -n +2 <<EOF >> %s/.ssh/authorized_keys
+%s
+EOF`
+
+// Need to be verified, image and the admin user home mapping config
+var ImageAdminHomeDict = map[string]string{
+	"jessie": "/home/admin",
+	"debian9" : "/home/admin",
+	"xenial" : "/home/ubuntu",
+	"bionic" : "/home/ubuntu",
+	"rhel7" : "/home/ec2-user",
+	"centos7"  : "/home/ec2-user",
+	"coreos"  : "/home/ec2-user",
+	"containeros"  : "/home/ec2-user",
+}
 
 // BootstrapScript creates the bootstrap script
 type BootstrapScript struct {
@@ -56,6 +74,63 @@ func (b *BootstrapScript) KubeEnv(ig *kops.InstanceGroup) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+// KubeKeys returns the nodeup config for the instance group
+func (b *BootstrapScript) KubeKeys(ig *kops.InstanceGroup, cluster *kops.Cluster) (string, error) {
+	config, err := b.NodeUpConfigBuilder(ig)
+	if err != nil {
+		return "", err
+	}
+
+	var adminHome = "/root"
+	for k, v := range ImageAdminHomeDict {
+		if strings.Contains(ig.Spec.Image, k) {
+			adminHome = v
+			break
+		}
+	}
+
+	if kops.CloudProviderID(cluster.Spec.CloudProvider) == kops.CloudProviderAWS && config.ConfigBase != nil {
+		configBaseValue := *(config.ConfigBase)
+
+		publicKeys, err := b.readKeys(cluster, configBaseValue)
+		if err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf(PublicKeysTemplate, adminHome, publicKeys), nil
+	}
+
+	return "", err
+}
+
+func (b *BootstrapScript) readKeys(cluster *kops.Cluster, configBase string) (string, error) {
+	basePath, err := vfs.Context.BuildVfsPath(configBase)
+	if err != nil {
+		return "", fmt.Errorf("error building path for %q: %v", configBase, err)
+	}
+
+	allowVFSList := true
+
+	clientset := vfsclientset.NewVFSClientset(basePath, allowVFSList)
+	sshCredentialStore, err := clientset.SSHCredentialStore(cluster)
+	if err != nil {
+		return "", err
+	}
+
+	sshCredentials, err := sshCredentialStore.ListSSHCredentials()
+	if err != nil {
+		return "", fmt.Errorf("error listing SSH credentials %v", err)
+	}
+
+	var publicKeys string
+	for i := range sshCredentials {
+		publicKeys = sshCredentials[i].Spec.PublicKey
+		break
+	}
+
+	return fmt.Sprintf(`%v`, publicKeys), nil
 }
 
 func (b *BootstrapScript) buildEnvironmentVariables(cluster *kops.Cluster) (map[string]string, error) {
@@ -129,9 +204,10 @@ func (b *BootstrapScript) buildEnvironmentVariables(cluster *kops.Cluster) (map[
 // ResourceNodeUp generates and returns a nodeup (bootstrap) script from a
 // template file, substituting in specific env vars & cluster spec configuration
 func (b *BootstrapScript) ResourceNodeUp(ig *kops.InstanceGroup, cluster *kops.Cluster) (*fi.ResourceHolder, error) {
-	// Bastions can have AdditionalUserData, but if there isn't any skip this part
-	if ig.IsBastion() && len(ig.Spec.AdditionalUserData) == 0 {
-		return nil, nil
+	bastionFunctions := template.FuncMap{
+		"KubeKeys": func() (string, error) {
+			return b.KubeKeys(ig, cluster)
+		},
 	}
 
 	functions := template.FuncMap{
@@ -143,6 +219,9 @@ func (b *BootstrapScript) ResourceNodeUp(ig *kops.InstanceGroup, cluster *kops.C
 		},
 		"KubeEnv": func() (string, error) {
 			return b.KubeEnv(ig)
+		},
+		"KubeKeys": func() (string, error) {
+			return b.KubeKeys(ig, cluster)
 		},
 
 		"EnvironmentVariables": func() (string, error) {
@@ -262,7 +341,12 @@ func (b *BootstrapScript) ResourceNodeUp(ig *kops.InstanceGroup, cluster *kops.C
 		return nil, err
 	}
 
-	templateResource, err := NewTemplateResource("nodeup", awsNodeUpTemplate, functions, nil)
+	resourceFunction := functions
+	if ig.IsBastion() {
+		resourceFunction = bastionFunctions
+	}
+
+	templateResource, err := NewTemplateResource("nodeup", awsNodeUpTemplate, resourceFunction, nil)
 	if err != nil {
 		return nil, err
 	}
