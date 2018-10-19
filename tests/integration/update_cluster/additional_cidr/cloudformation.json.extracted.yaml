@@ -274,6 +274,13 @@ Resources.AWSAutoScalingLaunchConfigurationmasterustest1bmastersadditionalcidrex
   __EOF_KUBE_ENV
 
   download-release
+
+  until /usr/local/bin/aws s3 cp memfs://clusters.example.com/additionalcidr.example.com/pki/ssh/public/admin/ /tmp/admin --recursive --include "*"; do
+      ((c++)) && ((c==10)) && break
+      sleep 5
+      echo "Couldn't download public keys from s3. Retrying..."
+  done
+  tail -n +2 /tmp/admin/* >> /home/admin/.ssh/authorized_keys
   echo "== nodeup node config done =="
 Resources.AWSAutoScalingLaunchConfigurationnodesadditionalcidrexamplecom.Properties.UserData: |
   #!/bin/bash
@@ -482,4 +489,11 @@ Resources.AWSAutoScalingLaunchConfigurationnodesadditionalcidrexamplecom.Propert
   __EOF_KUBE_ENV
 
   download-release
+
+  until /usr/local/bin/aws s3 cp memfs://clusters.example.com/additionalcidr.example.com/pki/ssh/public/admin/ /tmp/admin --recursive --include "*"; do
+      ((c++)) && ((c==10)) && break
+      sleep 5
+      echo "Couldn't download public keys from s3. Retrying..."
+  done
+  tail -n +2 /tmp/admin/* >> /home/admin/.ssh/authorized_keys
   echo "== nodeup node config done =="

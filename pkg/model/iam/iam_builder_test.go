@@ -121,19 +121,19 @@ func TestPolicyGeneration(t *testing.T) {
 			Role:                   "Bastion",
 			LegacyIAM:              true,
 			AllowContainerRegistry: false,
-			Policy:                 "tests/iam_builder_bastion.json",
+			Policy:                 "tests/iam_builder_bastion_legacy.json",
 		},
 		{
 			Role:                   "Bastion",
 			LegacyIAM:              false,
 			AllowContainerRegistry: false,
-			Policy:                 "tests/iam_builder_bastion.json",
+			Policy:                 "tests/iam_builder_bastion_strict.json",
 		},
 		{
 			Role:                   "Bastion",
 			LegacyIAM:              false,
 			AllowContainerRegistry: true,
-			Policy:                 "tests/iam_builder_bastion.json",
+			Policy:                 "tests/iam_builder_bastion_strict.json",
 		},
 	}
 

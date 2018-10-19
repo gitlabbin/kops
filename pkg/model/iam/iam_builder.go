@@ -232,6 +232,11 @@ func (b *PolicyBuilder) BuildAWSPolicyBastion() (*Policy, error) {
 		Version: PolicyDefaultVersion,
 	}
 
+	var err error
+	if p, err = b.AddS3Permissions(p); err != nil {
+		return nil, fmt.Errorf("failed to generate AWS IAM S3 access statements: %v", err)
+	}
+
 	// Bastion hosts currently don't require any specific permissions.
 	// A trivial permission is granted, because empty policies are not allowed.
 	p.Statement = append(p.Statement, &Statement{
@@ -387,6 +392,18 @@ func (b *PolicyBuilder) AddS3Permissions(p *Policy) (*Policy, error) {
 							})
 						}
 					}
+				}
+
+				if b.Role == kops.InstanceGroupRoleBastion {
+					resources := []string{
+						strings.Join([]string{b.IAMPrefix(), ":s3:::", iamS3Path, "/pki/ssh/*"}, ""),
+					}
+
+					p.Statement = append(p.Statement, &Statement{
+						Effect:   StatementEffectAllow,
+						Action:   stringorslice.Slice([]string{"s3:Get*"}),
+						Resource: stringorslice.Of(resources...),
+					})
 				}
 			}
 		} else if _, ok := vfsPath.(*vfs.MemFSPath); ok {

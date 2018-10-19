@@ -58,6 +58,21 @@ func (b *BootstrapScript) KubeEnv(ig *kops.InstanceGroup) (string, error) {
 	return string(data), nil
 }
 
+// KubeKeys returns the nodeup config for the instance group
+func (b *BootstrapScript) KubeKeys(ig *kops.InstanceGroup, cluster *kops.Cluster) (string, error) {
+	config, err := b.NodeUpConfigBuilder(ig)
+	if err != nil {
+		return "", err
+	}
+
+	if kops.CloudProviderID(cluster.Spec.CloudProvider) == kops.CloudProviderAWS && config.ConfigBase != nil {
+		configBaseValue := *(config.ConfigBase)
+		return fmt.Sprintf(`/usr/local/bin/aws s3 cp %s/pki/ssh/public/admin/ /tmp/admin --recursive --include "*"`, configBaseValue), nil
+	}
+
+	return "", err
+}
+
 func (b *BootstrapScript) buildEnvironmentVariables(cluster *kops.Cluster) (map[string]string, error) {
 	env := make(map[string]string)
 
@@ -97,9 +112,10 @@ func (b *BootstrapScript) buildEnvironmentVariables(cluster *kops.Cluster) (map[
 // ResourceNodeUp generates and returns a nodeup (bootstrap) script from a
 // template file, substituting in specific env vars & cluster spec configuration
 func (b *BootstrapScript) ResourceNodeUp(ig *kops.InstanceGroup, cluster *kops.Cluster) (*fi.ResourceHolder, error) {
-	// Bastions can have AdditionalUserData, but if there isn't any skip this part
-	if ig.IsBastion() && len(ig.Spec.AdditionalUserData) == 0 {
-		return nil, nil
+	bastionFunctions := template.FuncMap{
+		"KubeKeys": func() (string, error) {
+			return b.KubeKeys(ig, cluster)
+		},
 	}
 
 	functions := template.FuncMap{
@@ -111,6 +127,9 @@ func (b *BootstrapScript) ResourceNodeUp(ig *kops.InstanceGroup, cluster *kops.C
 		},
 		"KubeEnv": func() (string, error) {
 			return b.KubeEnv(ig)
+		},
+		"KubeKeys": func() (string, error) {
+			return b.KubeKeys(ig, cluster)
 		},
 
 		"EnvironmentVariables": func() (string, error) {
@@ -221,7 +240,12 @@ func (b *BootstrapScript) ResourceNodeUp(ig *kops.InstanceGroup, cluster *kops.C
 		return nil, err
 	}
 
-	templateResource, err := NewTemplateResource("nodeup", awsNodeUpTemplate, functions, nil)
+	resoureFunction := functions
+	if ig.IsBastion() {
+		resoureFunction = bastionFunctions
+	}
+
+	templateResource, err := NewTemplateResource("nodeup", awsNodeUpTemplate, resoureFunction, nil)
 	if err != nil {
 		return nil, err
 	}

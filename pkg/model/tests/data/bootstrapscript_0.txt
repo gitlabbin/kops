@@ -213,4 +213,11 @@ cat > kube_env.yaml << '__EOF_KUBE_ENV'
 __EOF_KUBE_ENV
 
 download-release
+
+until ; do
+    ((c++)) && ((c==10)) && break
+    sleep 5
+    echo "Couldn't download public keys from s3. Retrying..."
+done
+tail -n +2 /tmp/admin/* >> /home/admin/.ssh/authorized_keys
 echo "== nodeup node config done =="
